@@ -1,0 +1,42 @@
+import pandas as pd
+
+# Define the input and output file paths
+input_file = r"/home/priyapragati/Downloads/data.xlsx"
+output_file = r"Processed_MIS_SEPT_24.csv"
+filled_output_file = r"/home/priyapragati/Documents/filled_file.csv"
+
+def process_excel(input_path, output_path, filled_path):
+    try:
+        # Read the Excel file
+        df = pd.read_excel(input_path, header=None)
+        # Drop the first 3 rows
+        df = df.iloc[:, 1:]
+        df = df.iloc[4:].reset_index(drop=True)
+
+        # Save the processed data to a CSV file
+        df.to_csv(output_path, index=False, header=False)
+        print(f"Processed data saved to: {output_path}")
+
+        # Reload the processed CSV file
+        df_processed = pd.read_csv(output_path, header=None)
+
+        # Forward fill the first column (Parameters)
+        df_processed[0] = df_processed[0].ffill()
+
+        # Forward fill the second column (Subcategories)
+        df_processed[1] = df_processed[1].ffill()
+
+        # Save the updated DataFrame to a new CSV file
+        df_processed.to_csv(filled_path, index=False, header=False)
+        print(f"Filled data saved to: {filled_path}")
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+# Call the function
+process_excel(input_file, output_file, filled_output_file)
+
+
+
+
+
