@@ -1,3 +1,6 @@
+### To fill blank space of first second column with similar name :-
+
+
 import pandas as pd
 
 # Define the input and output file paths
