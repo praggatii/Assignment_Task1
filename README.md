@@ -1,8 +1,8 @@
 Need to delete row using Pandas. But there will a blank cell or a merged cell code will give output as unnamed. 
-# Task1: To avoid this problem. We need to use Try and Except. 
+#### Task1: To avoid this problem. We need to use Try and Except. 
 There are few blank cells in col1 and col2. The Parameters column has category, and those category have some more subcategory. 
-# Task2: To fill the blank space of col1 and col2 with similar names.
-# Task3: Now, we have to load the raw file in AWS S3. and, run the same script in AWS Glue.
+#### Task2: To fill the blank space of col1 and col2 with similar names.
+####  Task3: Now, we have to load the raw file in AWS S3. and, run the same script in AWS Glue.
 
 
 ### AWS Prerequisites
