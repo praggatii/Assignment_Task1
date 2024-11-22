@@ -1,4 +1,4 @@
-##### To Remove rows using Pytho:
+#### To Remove rows using Python:
 In the given data(data.xlsx) we need to delete row using Pandas. But there will a blank cell or a merged cell code will give output as unnamed. 
 ### Task1: To avoid this problem. We need to use Try and Except. 
 There are few blank cells in col1 and col2. The Parameters column has category, and those category have some more subcategory. 
