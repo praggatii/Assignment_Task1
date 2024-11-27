@@ -1,44 +1,141 @@
 ### AWS GLUE SCRIPT ###
 
+import sys
+import os
 import pandas as pd
-
-# Define the input and output file paths
-input_file = r"s3://operational-mis-sept-24-haldia2/Data/data.xlsx"
-output_file = r"s3://operational-mis-sept-24-haldia2/output_data/output_test/"
-filled_output_file = r"s3://operational-mis-sept-24-haldia2/output_data/output_test/"
-
-def process_excel(input_path, output_path, filled_path):
+import re
+import boto3
+from io import BytesIO
+from datetime import datetime
+ 
+s3 = boto3.client('s3')
+ 
+current_year = datetime.now().year
+next_year = current_year + 1
+fy_year = str(current_year)[-2:] # Last two digits of the current year
+ 
+def check_file_exists(bucket_name, file_path):
+    """
+    Check if a file exists in the S3 bucket.
+    """
     try:
-        # Read the Excel file
-        df = pd.read_excel(input_path, header=None)
-        # Drop the first 3 rows
-        df = df.iloc[:, 1:]
-        df = df.iloc[4:].reset_index(drop=True)
-
-        # Save the processed data to a CSV file
-        # df.to_csv(output_path, index=False, header=False)
-        # print(f"Processed data saved to: {output_path}")
-
-        # Reload the processed CSV file
-        df_processed = pd.read_csv(output_path, header=None)
-
-        # Forward fill the first column (Parameters)
-        df_processed[0] = df_processed[0].ffill()
-
-        # Forward fill the second column (Subcategories)
-        df_processed[1] = df_processed[1].ffill()
-
-        # Save the updated DataFrame to a new CSV file
-        df_processed.to_csv(filled_path, index=False, header=False)
-        print(f"Filled data saved to: {filled_path}")
-
+        s3.head_object(Bucket=bucket_name, Key=file_path)
+        return True
+    except s3.exceptions.ClientError as e:
+        # If a 404 error is returned, the file doesn't exist
+        if e.response['Error']['Code'] == '404':
+            return False
+        else:
+            raise e
+def process_excel_station(file_path, sheet_name):
+    """
+    Process the Excel file for the 'STATION' worksheet.
+    """
+    # Get the bucket and key for S3 object
+    bucket_name = file_path.split('/')[0]
+    key = '/'.join(file_path.split('/')[1:])
+    try:
+        # Fetch the file from S3
+        response = s3.get_object(Bucket=bucket_name, Key=key)
+        file_content = BytesIO(response['Body'].read())
+        # Read the Excel file into a DataFrame
+        df = pd.read_excel(file_content, sheet_name=sheet_name, header=None)
+ 
+        # Limit to first 33 columns and top 70 rows as per your logic
+        df = df.iloc[:, :33]
+        df = df.head(70)
+ 
+        # Extract month and year from file name
+        file_name = os.path.basename(file_path)
+        match = re.search(r"Daily station report-(\w+)\s?-(\d{2})\.xlsx", file_name)
+        if match:
+            month = match.group(1)
+            year = match.group(2)
+            report_month_year = f"{month}-{year}"
+        else:
+            print(f"File name '{file_name}' does not match the expected format. Skipping.")
+            return None
+ 
+        # Insert the month-year as the first column
+        df.insert(0, 'DATES', report_month_year)
+ 
+        # Rename columns
+        column_names = ['DATES', 'Description', 'UoM'] + [f"Day{i}" for i in range(1, 32)]
+        df.columns = column_names  # Assign column names
+ 
+        # Drop rows as specified
+        df = df.iloc[3:].reset_index(drop=True)
+        df = df.drop(index=9)
+ 
+        # Add prefix text to specific ranges of rows in column 'Description'
+        def add_prefix(row_index, column='Description'):
+            # Check the row index and add appropriate text to the 'Description' column
+            if row_index in range(2, 9):  # Rows 6-12 (adjusted to 0-based index)
+                return f"Power Generation - {df.at[row_index, column]}"
+            elif row_index in range(11, 14):  # Rows 15-17
+                return f"Plant Load Factor - {df.at[row_index, column]}"
+            elif row_index in range(15, 22):  # Rows 19-25
+                return f"Aux Power Consumption - {df.at[row_index, column]}"
+            elif row_index in range(23, 26):  # Rows 27-29
+                return f"Generation Availability - {df.at[row_index, column]}"
+            elif row_index in range(27, 30):  # Rows 31-33
+                return f"TG Availability - {df.at[row_index, column]}"
+            elif row_index in range(36, 39):  # Rows 40-42
+                return f"TPTCL Sale - {df.at[row_index, column]}"
+            else:
+                return df.at[row_index, column]
+        # Apply the transformation to the DataFrame
+        df['Description'] = df.index.to_series().apply(lambda x: add_prefix(x))
+ 
+        # Return the processed DataFrame
+        return df
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"Error processing file '{file_path}': {e}")
+        return None
+ 
+ 
+def append_excel_files_to_s3_station(bucket_name, prefix, sheet_name):
+    """
+    Append processed data from Excel files in S3 under the 'STATION' sheet and save as a CSV.
+    """
+    all_data = []
+    column_names = None
+ 
+    # List all files in the S3 bucket under the specified prefix
+    response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+    for obj in response.get('Contents', []):
+        file_path = obj['Key']
+        if file_path.endswith(".xlsx"):
+            print(f"Processing file: {file_path}")
+            processed_data = process_excel_station(f"{bucket_name}/{file_path}", sheet_name)
+            if processed_data is not None:
+                all_data.append(processed_data)
+    if all_data:
+        combined_df = pd.concat(all_data, ignore_index=True)
+        # Save the combined data to CSV
+        csv_buffer = BytesIO()
+        combined_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+ 
+        # Generate the output file name
+        output_csv_path = f"output_data/Daily_Station_Report_STATION.csv"
+        # Upload the CSV file to S3
+        s3.put_object(Bucket=bucket_name, Key=output_csv_path, Body=csv_buffer.getvalue())
+        print(f"All data has been appended and saved to S3 path '{output_csv_path}'.")
+    else:
+        print("No valid Excel files were processed.")
+if __name__ == "__main__":
+    # S3 bucket
+    bucket_name = "operational-mis-sept-24-haldia2"
+ 
+    # Dynamically generate the raw prefixes for both worksheets
+    raw_prefix_station = f"Data_Station_Report/"
 
-# Call the function
-process_excel(input_file, output_file, filled_output_file)
-
-
+ 
+   
+ 
+    # Process S3 files for 'STATION' worksheet
+    append_excel_files_to_s3_station(bucket_name, raw_prefix_station, sheet_name="STATION")
 
 
 
