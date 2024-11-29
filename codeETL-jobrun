@@ -1,4 +1,4 @@
-### AWS GLUE SCRIPT ###
+### AWS GLUE SCRIPT ##
 
 import sys
 import os
